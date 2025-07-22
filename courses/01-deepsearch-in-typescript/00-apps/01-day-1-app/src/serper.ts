@@ -76,7 +76,16 @@ const fetchFromSerper = cacheWithRedis(
     });
 
     if (!response.ok) {
-      throw new Error(await response.text());
+      let details = "";
+      try {
+        const text = await response.text();
+        details = text;
+      } catch {}
+      throw new Error(
+        `Serper request failed (${response.status} ${response.statusText})${
+          details ? `: ${details}` : ""
+        }`,
+      );
     }
 
     const json = await response.json();

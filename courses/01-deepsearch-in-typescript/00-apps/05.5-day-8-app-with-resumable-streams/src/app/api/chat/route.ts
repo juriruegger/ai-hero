@@ -1,14 +1,28 @@
 import type { Message } from "ai";
-import { createDataStreamResponse, appendResponseMessages } from "ai";
-import { auth } from "~/server/auth";
-import { upsertChat } from "~/server/db/queries";
+import { appendResponseMessages, createDataStream } from "ai";
 import { eq } from "drizzle-orm";
-import { db } from "~/server/db";
-import { chats } from "~/server/db/schema";
 import { Langfuse } from "langfuse";
-import { env } from "~/env";
+import { after } from "next/server";
+import { createResumableStreamContext } from "resumable-stream/ioredis";
 import { streamFromDeepSearch } from "~/deep-search";
+import { Redis } from "ioredis";
+import { env } from "~/env";
+import { auth } from "~/server/auth";
+import { db } from "~/server/db";
+import {
+  appendStreamId,
+  getChat,
+  getStreamIds,
+  upsertChat,
+} from "~/server/db/queries";
+import { chats } from "~/server/db/schema";
 import type { OurMessageAnnotation } from "~/types";
+
+const streamContext = createResumableStreamContext({
+  waitUntil: after,
+  publisher: new Redis(env.REDIS_URL),
+  subscriber: new Redis(env.REDIS_URL),
+});
 
 const langfuse = new Langfuse({
   environment: env.NODE_ENV,
@@ -38,22 +52,25 @@ export async function POST(request: Request) {
   let currentChatId = chatId;
   if (!currentChatId) {
     const newChatId = crypto.randomUUID();
-    await upsertChat({
-      userId: session.user.id,
-      chatId: newChatId,
-      title: messages[messages.length - 1]!.content.slice(0, 50) + "...",
-      messages: messages, // Only save the user's message initially
-    });
+
     currentChatId = newChatId;
   } else {
     // Verify the chat belongs to the user
     const chat = await db.query.chats.findFirst({
       where: eq(chats.id, currentChatId),
     });
+
     if (!chat || chat.userId !== session.user.id) {
       return new Response("Chat not found or unauthorized", { status: 404 });
     }
   }
+
+  await upsertChat({
+    userId: session.user.id,
+    chatId: currentChatId,
+    title: messages[messages.length - 1]!.content.slice(0, 50) + "...",
+    messages: messages,
+  });
 
   const trace = langfuse.trace({
     sessionId: currentChatId,
@@ -61,7 +78,12 @@ export async function POST(request: Request) {
     userId: session.user.id,
   });
 
-  return createDataStreamResponse({
+  const streamId = crypto.randomUUID();
+
+  // Record this new stream so we can resume later
+  await appendStreamId({ chatId: currentChatId, streamId });
+
+  const stream = createDataStream({
     execute: async (dataStream) => {
       // If this is a new chat, send the chat ID to the frontend
       if (!chatId) {
@@ -110,10 +132,81 @@ export async function POST(request: Request) {
       });
 
       result.mergeIntoDataStream(dataStream);
+
+      // Consume the stream - without this,
+      // we won't be able to resume the stream later
+      await result.consumeStream();
     },
     onError: (e) => {
       console.error(e);
       return "Oops, an error occurred!";
     },
   });
+
+  return new Response(
+    await streamContext.resumableStream(streamId, () => stream),
+  );
+}
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const chatId = searchParams.get("chatId");
+
+  const session = await auth();
+
+  if (!session) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  if (!chatId) {
+    return new Response("chatId is required", { status: 400 });
+  }
+
+  const chat = await getChat({ chatId, userId: session.user.id });
+
+  if (!chat) {
+    return new Response("Chat not found", { status: 404 });
+  }
+
+  const { mostRecentStreamId, streamIds } = await getStreamIds({ chatId });
+
+  if (!streamIds.length) {
+    return new Response("No streams found", { status: 404 });
+  }
+
+  if (!mostRecentStreamId) {
+    return new Response("No recent stream found", { status: 404 });
+  }
+
+  const emptyDataStream = createDataStream({
+    execute: () => {},
+  });
+
+  const stream = await streamContext.resumableStream(
+    mostRecentStreamId,
+    () => emptyDataStream,
+  );
+
+  console.log("STREAM FOUND", stream);
+
+  if (stream) {
+    return new Response(stream, { status: 200 });
+  }
+
+  const mostRecentMessage = chat.messages.at(-1);
+
+  if (!mostRecentMessage || mostRecentMessage.role !== "assistant") {
+    return new Response(emptyDataStream, { status: 200 });
+  }
+
+  const streamWithMessage = createDataStream({
+    execute: (buffer) => {
+      buffer.writeData({
+        type: "append-message",
+        message: JSON.stringify(mostRecentMessage),
+      });
+    },
+  });
+
+  return new Response(streamWithMessage, { status: 200 });
 }

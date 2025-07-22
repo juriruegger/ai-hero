@@ -80,6 +80,9 @@ importers:
       rehype-raw:
         specifier: ^7.0.0
         version: 7.0.0
+      resumable-stream:
+        specifier: ^2.2.1
+        version: 2.2.1
       robots-parser:
         specifier: ^3.0.1
         version: 3.0.1
@@ -3346,6 +3349,9 @@ packages:
   resolve@2.0.0-next.5:
     resolution: {integrity: sha512-U7WjGVG9sH8tvjW5SmGbQuui75FiyjAX72HX15DwBBwF9dNiQZRQAg9nnPhYy+TUnE0+VcrttuvNI8oSxZcocA==}
     hasBin: true
+
+  resumable-stream@2.2.1:
+    resolution: {integrity: sha512-8UOWqA+KjAOaZeeZa38lIhbNGM1B6ygO2QTi1BNcVO9vemQz1M0f2qVsnHqSnsLpJLfmOWNwq64TmBtOJxjCeQ==}
 
   ret@0.5.0:
     resolution: {integrity: sha512-I1XxrZSQ+oErkRR4jYbAyEEu2I0avBvvMM5JN+6EBprOGRCs63ENqZ3vjavq8fBw2+62G5LF5XelKwuJpcvcxw==}
@@ -7364,6 +7370,8 @@ snapshots:
       is-core-module: 2.16.1
       path-parse: 1.0.7
       supports-preserve-symlinks-flag: 1.0.0
+
+  resumable-stream@2.2.1: {}
 
   ret@0.5.0: {}
 

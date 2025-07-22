@@ -41,6 +41,27 @@ export const usersRelations = relations(users, ({ many }) => ({
   accounts: many(accounts),
 }));
 
+export const requestLogs = createTable(
+  "request_log",
+  {
+    id: serial("id").primaryKey(),
+    userId: varchar("user_id", { length: 255 })
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+      .default(sql`CURRENT_TIMESTAMP`)
+      .notNull(),
+  },
+  (t) => ({
+    userIdIdx: index("request_log_user_id_idx").on(t.userId),
+    createdAtIdx: index("request_log_created_at_idx").on(t.createdAt),
+  }),
+);
+
+export const requestLogsRelations = relations(requestLogs, ({ one }) => ({
+  user: one(users, { fields: [requestLogs.userId], references: [users.id] }),
+}));
+
 export const accounts = createTable(
   "account",
   {
