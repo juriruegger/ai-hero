@@ -9,6 +9,7 @@ import { SignInModal } from "~/components/sign-in-modal";
 import { isNewChatCreated } from "~/utils";
 import type { Message } from "ai";
 import type { OurMessageAnnotation } from "~/types";
+import { useAutoResume } from "~/use-auto-resume";
 
 interface ChatProps {
   userName: string;
@@ -32,11 +33,24 @@ export const ChatPage = ({
     handleSubmit: originalHandleSubmit,
     isLoading,
     data,
+    setMessages,
+    experimental_resume,
   } = useChat({
+    id: chatId,
     body: {
       chatId,
     },
     initialMessages,
+  });
+
+  console.log(initialMessages);
+
+  useAutoResume({
+    autoResume: true,
+    initialMessages,
+    experimental_resume,
+    data,
+    setMessages,
   });
 
   useEffect(() => {
